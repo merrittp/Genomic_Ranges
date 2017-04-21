@@ -1,0 +1,111 @@
+---
+title: "Genomic_Ranges_Markdown"
+author: "Merritt Polomsky"
+date: "4/19/2017"
+output: html_document
+---
+
+In this markdown file, I will be detailing the workflow and steps that were taken in slides 132-139 of the Genomic Ranges presentation, which is the same as the Buffalo book, chapter 9, pages 325 - 327.
+
+## Setting up to run
+
+To make sure that I had all the necessary packages and libraries, I ended up reinstalling all the packages. It may seem excessive, but I ended up having problems getting the code to run and found that the install messages were helpful in fixing the problem. 
+
+```{r, echo = FALSE}
+#specified working directory here.
+
+source("http://bioconductor.org/biocLite.R")
+biocLite()
+biocLite("GenomicRanges")
+
+library(BiocInstaller)
+biocLite("GenomicFeatures")
+biocLite("TxDb.Mmusculus.UCSC.mm10.ensGene")
+biocLite("IRanges")
+
+```
+
+I also saw that the code in the file needed the txdb from other slides, and called in that library before creating that variable. I also made sure IRanges was added. The txdb object is pulling all the transcript of the mouse genome and putting it into a variable. When it is called later, it is used as a comparison.
+
+```{r, echo=FALSE}
+library(TxDb.Mmusculus.UCSC.mm10.ensGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.ensGene
+
+library(IRanges)
+library(rtracklayer)
+```
+
+Before I continue with the code, I would like to include here that after trying to the run the code from the slides, I figured out that the packages were demanding that my R version be R 3.3.3, and I only had R 3.3.2. I therefore updated my R version before I continued. It was not allowing me to use the import feature or open the imported file.
+
+I also had to specify my working directory, which I did not include the exact location of, as it will be different for everyone.
+
+## Code.
+
+The first line of code is listed below. This code uses the rtracklayer command of import to pull the data from the bed file into R and store it in dbsnp137. This data pulled in as a IRanges object includes the chromosome number, the position of the snp, and the strand of DNA the snp is one. This will be useful in later parts of the code.
+
+```{r, echo=FALSE}
+
+setwd("/Users/merrittpolomsky/Documents/bds-files/chapter-09-working-with-range-data")
+#working directory added so I could check one more time that the code was working.
+dbsnp137 <- import('mm10_snp137_chr1_trunc.bed.gz')
+
+```
+
+The next lines of code are made in a effort to look exclusively at the snp variants on chromosome one and determine if they fall into exonic regions of the genome. In the first command, the exonic sequences from the transcript object created above are collasped into single exons, while ignoring the strand orientation. In the second line of code, the collasped exons from chromosome 1 are being pulled out by finding all the lines with a seqname of chr_1 and putting it into a new variable.
+
+```{r, echo=FALSE}
+
+collasped_exons <- reduce(exons(txdb), ignore.strand=TRUE)
+chr1_collasped_exons <- collasped_exons[seqnames(collasped_exons) == "chr1"]
+
+```
+
+The next given line of code shows the summary of the sequences in the dbsnp137 imported file. The results show that the majority of sequences are only 1 nucleotide, which is appropriate considering this is mainly of SNP data, as well as insertion, deletions, and multiple nucleotide polymorphisms.  
+
+```{r}
+
+summary(width(dbsnp137))
+
+```
+
+The results also show that there is at least one sequence that is unsually long, at 732 basepairs, and there are some that appear to be 0 nucleotides long. These appear due to insertions in the reference genome that is being used and they must be accounted for. Therefore, we will resize these to be 1 basepair long.
+
+The variable containing the data is duplicated so it can be resized in the first line. The second line of code pulls out the ones that are equal to 0 basepair in width and assigns it in the new variable. In the third line of code, we use the resize() function to take all of these 0 width seqments and resize them to be 1 basepair in width before replacing them in the resized dbsnp137 variable.
+
+```{r, echo=FALSE}
+
+dbsnp137_resized <- dbsnp137
+zw_i <- width(dbsnp137_resized) == 0
+dbsnp137_resized[zw_i] <- resize(dbsnp137_resized[zw_i], width=1)
+
+```
+
+Next, to see if the variants in the resized variable, we creat a Hits object using the findOverLap feature. This will create a variable that holds all the overlaps between the subject file and the query file. In this case, the resized file and the collasped file. Because we've been ignoring which strand the SNPs are on previously, we will add the ignore stand argument.
+
+```{r, echo=FALSE}
+
+hits <- findOverlaps(dbsnp137_resized, chr1_collasped_exons, ignore.strand=TRUE)
+
+```
+
+The hits object can be looked at using various parts of the GenomicRange and IRange packages. Using the length() combined with the unique() function and queryHits() function, we can see the number of unique variants in chromosome 1. This is the first line of code. In the second line of code, we use the same functions as the first line of code and divide it by the total length of the resized object to get the percent of the unique variants in chromosome 1. 
+
+```{r}
+
+length(unique(queryHits(hits)))
+length(unique(queryHits(hits)))/length(dbsnp137_resized)
+
+```
+
+The second part of this assignment asked to create a file that had an additional column with the number of variants per exon to the chromosome exon file. This could be used in downstream analysis of some sort.
+
+To do this, the previous code should be executed, and the next code will utilize the countOverLap() function and the chr1_collasped_exons object. 
+
+The countOverLap() function will count the total number of times the resized object overlaps with parts of the collasped exons object and store it in another object called var_counts. var_counts can be appended to the chr1_collasped_exons object which can be written into it's own file. The export.bed function allows for the GRange object to be exported as a bed file.
+
+```{r}
+var_counts <- countOverlaps(chr1_collasped_exons, dbsnp137_resized, ignore.strand=TRUE)
+chr1_collasped_exons$num_vars <- var_counts
+
+export.bed(chr1_collasped_exons, "chr1_collasped_exons.bed")
+```
